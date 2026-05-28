@@ -41,7 +41,9 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 				.collect(Collectors.toUnmodifiableSet());
 
 		Map<String, List<String>> parsed = new HashMap<>();
-		ipWhitelistConfig.forEach((key, prefixes) -> parsed.put(key.trim(), List.of(prefixes.split(","))));
+		if (ipWhitelistConfig != null) {
+			ipWhitelistConfig.forEach((key, prefixes) -> parsed.put(key.trim(), List.of(prefixes.split(","))));
+		}
 		this.keyIpWhitelist = Map.copyOf(parsed);
 	}
 

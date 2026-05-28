@@ -43,7 +43,7 @@ public class ResilienceConfig {
     }
 
     @Bean
-    public CircuitBreakerRegistry circuitBreakerRegistry() {
+    CircuitBreakerRegistry circuitBreakerRegistry() {
         CircuitBreakerConfig config = CircuitBreakerConfig.custom()
                 .failureRateThreshold(50)                         // Open at 50% failure rate
                 .slowCallRateThreshold(80)                        // Treat >5s calls as failures

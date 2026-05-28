@@ -182,6 +182,18 @@
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>0.8.11</version>
+                <configuration>
+                    <excludes>
+                        <!-- MapStruct generated implementations -->
+                        <exclude>**/*MapperImpl.class</exclude>
+                        <!-- Pure Spring configuration beans (no business logic) -->
+                        <exclude>**/config/ResilienceConfig.class</exclude>
+                        <exclude>**/config/SecurityConfig.class</exclude>
+                        <exclude>**/config/OpenApiConfig.class</exclude>
+                        <!-- Application entry point -->
+                        <exclude>**/TransactionOrchestratorApplication.class</exclude>
+                    </excludes>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>

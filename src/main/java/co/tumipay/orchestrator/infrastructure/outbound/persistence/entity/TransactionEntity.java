@@ -43,10 +43,10 @@ public class TransactionEntity {
     @Column(name = "amount", nullable = false)
     private Long amount;
 
-    @Column(name = "currency_code", length = 3, nullable = false)
+    @Column(name = "currency_code", columnDefinition = "CHAR(3)", nullable = false)
     private String currencyCode;
 
-    @Column(name = "country_code", length = 2, nullable = false)
+    @Column(name = "country_code", columnDefinition = "CHAR(2)", nullable = false)
     private String countryCode;
 
     @Column(name = "payment_method_id", length = 50, nullable = false)

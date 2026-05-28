@@ -10,6 +10,8 @@ import co.tumipay.orchestrator.domain.port.out.TransactionRepositoryPort;
 import co.tumipay.orchestrator.infrastructure.outbound.persistence.entity.TransactionEntity;
 import co.tumipay.orchestrator.infrastructure.outbound.persistence.mapper.TransactionPersistenceMapper;
 import co.tumipay.orchestrator.infrastructure.outbound.persistence.repository.TransactionJpaRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -21,10 +23,13 @@ public class TransactionRepositoryAdapter implements TransactionRepositoryPort {
     private final TransactionJpaRepository jpaRepository;
     private final TransactionPersistenceMapper mapper;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
     @Override
     public Transaction save(Transaction transaction) {
         TransactionEntity entity = mapper.toEntity(transaction);
-        TransactionEntity savedEntity = jpaRepository.save(entity);
+        TransactionEntity savedEntity = entityManager.merge(entity);
         log.debug("Transaction saved to DB. id={}", savedEntity.getId());
         return mapper.toDomain(savedEntity);
     }

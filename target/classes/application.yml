@@ -120,14 +120,8 @@ tumipay:
     # Security
     security:
       api-keys: ${API_KEYS:test-key-dev-001,test-key-dev-002}
-      ip-whitelist: {}   # {"api-key": "prefix1,prefix2"} — empty = disabled
-      public-paths:
-        - /actuator/health
-        - /actuator/info
-        - /api-docs
-        - /api-docs/**
-        - /swagger-ui/**
-        - /swagger-ui.html
+      ip-whitelist: "{}"   # {"api-key": "prefix1,prefix2"} — empty = disabled
+      public-paths: /actuator/health,/actuator/info,/api-docs,/api-docs/**,/swagger-ui/**,/swagger-ui.html
 
     # Transaction business limits
     transaction:
