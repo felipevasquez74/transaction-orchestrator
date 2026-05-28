@@ -18,7 +18,7 @@ A production-ready payment transaction orchestration microservice for the TumiPa
 - [API Contract](#api-contract)
 - [Error Codes Dictionary](#error-codes-dictionary)
 - [Database Schema](#database-schema)
-- [Observability Stack](#observability-stack)
+- [Logging & Health](#logging--health)
 - [CI/CD Pipeline](#cicd-pipeline)
 - [Code Quality Strategy](#code-quality-strategy)
 - [How to Run](#how-to-run)
@@ -726,32 +726,44 @@ Every response follows the standard envelope:
 
 ---
 
-## Observability Stack
+## Logging & Health
 
-### Services
+### Endpoints
 
-| Service | URL | Purpose |
+| URL | Auth required | Purpose |
 |---|---|---|
-| Application | `http://localhost:8080` | Main API |
-| Swagger UI | `http://localhost:8080/swagger-ui.html` | API documentation |
-| Actuator Health | `http://localhost:8080/actuator/health` | DB + Redis health probes |
+| `http://localhost:8080` | YES (`X-API-Key`) | Main API |
+| `http://localhost:8080/swagger-ui.html` | NO | Interactive API docs |
+| `http://localhost:8080/actuator/health` | NO | DB + Redis health probes |
+
+### Health Check
+
+`GET /actuator/health` returns composite health via Spring Boot Actuator:
+- **db**: HikariCP connection pool status
+- **redis**: PING response
+
+```json
+{
+  "status": "UP",
+  "components": {
+    "db":    { "status": "UP" },
+    "redis": { "status": "UP" }
+  }
+}
+```
 
 ### Structured Logging
 
-Logs follow profile-based configuration (`logback-spring.xml`):
+Profile-based configuration (`logback-spring.xml`):
 
 | Profile | Format | Destination |
 |---|---|---|
-| `default`, `local`, `test` | Colored console (human-readable) | stdout |
-| `prod`, `docker`, `staging` | JSON (Logstash Logback Encoder) | stdout → log aggregator |
+| `default`, `local`, `test` | Colored console | stdout |
+| `prod`, `docker`, `staging` | JSON (Logstash encoder) | stdout → log aggregator |
 
-Every log line includes MDC fields: `correlation_id`, `client_ip`, `client_transaction_id` (during processing).
+Every log line carries MDC fields: `correlation_id`, `client_ip`, `client_transaction_id`.
 
-### Health
-
-`GET /actuator/health` returns composite health (auto-configured by Spring Boot Actuator):
-- **DB**: HikariCP connection pool status
-- **Redis**: PING command
+> **Not implemented**: Prometheus metrics, Grafana dashboards, and distributed tracing (Zipkin/Jaeger) are listed as next steps but are not part of this version.
 
 ---
 
@@ -879,7 +891,7 @@ JaCoCo threshold: **70% line coverage** minimum (build fails below threshold).
 #### Step 1 — Clone the repository
 
 ```bash
-git clone https://github.com/your-org/transaction-orchestrator.git
+git clone https://github.com/felipevasquez74/transaction-orchestrator.git
 cd transaction-orchestrator
 ```
 
@@ -1121,10 +1133,10 @@ curl http://localhost:8080/actuator/health
 **Rationale**: Early-exit `.equals()` leaks timing information proportional to how many characters match, enabling brute-force oracle attacks.  
 **Consequence**: Marginal CPU overhead (microseconds) for a critical security guarantee.
 
-### ADR-008: Correlation ID en MDC
-**Decision**: `CorrelationIdFilter` genera o reusa el `X-Correlation-ID` y lo publica en SLF4J MDC para que todos los logs del request lleven el mismo ID de traza.  
-**Rationale**: Sin un correlation ID compartido, correlacionar logs de una misma request es imposible en ambientes concurrentes.  
-**Consequence**: MDC se limpia en `finally` para evitar fugas entre requests en el thread pool.
+### ADR-008: Correlation ID in MDC
+**Decision**: `CorrelationIdFilter` generates or reuses the `X-Correlation-ID` and publishes it to SLF4J MDC so that all logs for the request carry the same trace ID.  
+**Rationale**: Without a shared correlation ID, correlating logs for the same request is impossible in concurrent environments.  
+**Consequence**: MDC is cleared in `finally` to prevent leaks between requests in the thread pool.
 
 ### ADR-009: SSRF Prevention in Validator
 **Decision**: `SsrfGuard` validates `webhook_url` and `redirect_url` at request time, blocking private IPs, loopback, cloud metadata endpoints, and non-HTTP schemes.  
@@ -1157,7 +1169,7 @@ curl http://localhost:8080/actuator/health
 
 6. **Idempotency TTL**: Redis idempotency keys expire after 24 hours. Clients should not retry requests with the same `client_transaction_id` after 24 hours.
 
-7. **Brute-force protection**: Not yet implemented. Authentication failures are logged but no automatic IP lockout is in place. This is tracked as a pending next step (see [Next Steps — Fase 1](#fase-1--mvp--producción-sprint-1-3)).
+7. **Brute-force protection**: Not yet implemented. Authentication failures are logged but no automatic IP lockout is in place. This is tracked as a pending next step (see [Next Steps — Phase 1](#phase-1--mvp--production-sprint-1-3)).
 
 8. **UTF-8 encoding**: All string data stored as `utf8mb4` in MySQL, supporting full Unicode.
 
@@ -1165,93 +1177,93 @@ curl http://localhost:8080/actuator/health
 
 ## Identified Risks & Mitigation Plan
 
-This section documents all identified risks across five categories: Técnicos, Seguridad, Cumplimiento, Operacionales y Terceros. Cada riesgo incluye probabilidad, impacto, severidad, indicadores de detección y acciones de mitigación concretas.
+This section documents all identified risks across five categories: Technical, Security, Compliance, Operational, and Third-Party. Each risk includes probability, impact, severity, detection indicators, and concrete mitigation actions.
 
-### Matriz de Riesgos — Resumen Ejecutivo
+### Risk Matrix — Executive Summary
 
 ```
-IMPACTO
+IMPACT
   │
-  │  ALTO  │ R-S02  │ R-T03  R-T07 │ R-T06  R-B01  R-B02 │
+  │  HIGH  │ R-S02  │ R-T03  R-T07 │ R-T06  R-B01  R-B02 │
   │        │ R-O03  │ R-S01  R-P01 │ R-B03  R-S03        │
   │        │        │              │                      │
-  │ MEDIO  │ R-T02  │ R-T05        │                      │
+  │ MEDIUM │ R-T02  │ R-T05        │                      │
   │        │ R-T01  │ R-S04  R-O04 │                      │
   │        │ R-P02  │              │                      │
   │        │        │              │                      │
-  │  BAJO  │ R-O01  │ R-O02        │                      │
+  │  LOW   │ R-O01  │ R-O02        │                      │
   │        │        │              │                      │
-  └────────┴────────┴──────────────┴──────────────────────▶ PROBABILIDAD
-               BAJA        MEDIA              ALTA
+  └────────┴────────┴──────────────┴──────────────────────▶ PROBABILITY
+               LOW         MEDIUM             HIGH
 ```
 
-| Severidad | Color | Criterio |
+| Severity | Color | Criterion |
 |---|---|---|
-| 🔴 **Crítica** | Rojo | Alta probabilidad × Alto impacto — requiere acción inmediata |
-| 🟠 **Alta** | Naranja | Media probabilidad × Alto impacto, o Alta × Medio |
-| 🟡 **Media** | Amarillo | Media probabilidad × Medio impacto |
-| 🟢 **Baja** | Verde | Baja probabilidad o bajo impacto |
+| 🔴 **Critical** | Red | High probability × High impact — requires immediate action |
+| 🟠 **High** | Orange | Medium probability × High impact, or High × Medium |
+| 🟡 **Medium** | Yellow | Medium probability × Medium impact |
+| 🟢 **Low** | Green | Low probability or low impact |
 
 ---
 
-### Tabla Consolidada
+### Consolidated Table
 
-| ID | Riesgo | Categoría | Prob. | Impacto | Severidad | Estado |
+| ID | Risk | Category | Prob. | Impact | Severity | Status |
 |---|---|---|---|---|---|---|
-| R-T03 | Receptor de webhooks ausente | Técnico | ALTA | ALTO | 🔴 Crítica | Pendiente |
-| R-B01 | Incumplimiento regulatorio SFC / Habeas Data | Cumplimiento | ALTA | ALTO | 🔴 Crítica | Parcial |
-| R-B02 | Fraude / Lavado de activos | Cumplimiento | ALTA | ALTO | 🔴 Crítica | Sin mitigar |
-| R-B03 | Cobro doble al usuario final | Negocio | ALTA | ALTO | 🔴 Crítica | Parcial |
-| R-T06 | DNS Rebinding en URLs de webhook | Seguridad | ALTA | ALTO | 🔴 Crítica | Documentado |
-| R-S01 | Fuga / compromiso de API keys | Seguridad | ALTA | ALTO | 🔴 Crítica | Parcial |
-| R-T07 | MySQL punto único de falla | Técnico | MEDIA | ALTO | 🟠 Alta | Sin mitigar |
-| R-P01 | Cambios de API del proveedor sin aviso | Terceros | MEDIA | ALTO | 🟠 Alta | Sin mitigar |
-| R-S03 | Amenaza interna (insider threat) | Seguridad | MEDIA | ALTO | 🟠 Alta | Sin mitigar |
-| R-O03 | Caída total del proveedor de pago | Operacional | MEDIA | ALTO | 🟠 Alta | Sin mitigar |
-| R-S02 | PII en logs | Seguridad | BAJA | ALTO | 🟠 Alta | Mitigado |
-| R-T05 | Brute-force protection no implementada | Técnico | ALTA | MEDIO | 🟠 Alta | Pendiente |
-| R-S04 | Compromiso de dependencias (supply chain) | Seguridad | MEDIA | MEDIO | 🟡 Media | Parcial |
-| R-T02 | Divergencia de esquema test vs producción | Técnico | MEDIA | MEDIO | 🟡 Media | Pendiente |
-| R-T01 | Acoplamiento con nuevo proveedor | Técnico | BAJA | MEDIO | 🟡 Media | Mitigado |
-| R-O04 | Drift de configuración entre entornos | Operacional | MEDIA | MEDIO | 🟡 Media | Sin mitigar |
-| R-P02 | Fallo de entrega de webhooks al merchant | Terceros | MEDIA | MEDIO | 🟡 Media | Sin mitigar |
-| R-O02 | Error de configuración de monto máximo | Operacional | BAJA | MEDIO | 🟢 Baja | Mitigado |
-| R-O01 | Sin plan de recuperación ante desastre | Operacional | BAJA | BAJO | 🟢 Baja | Sin mitigar |
+| R-T03 | Missing webhook receiver | Technical | HIGH | HIGH | 🔴 Critical | Pending |
+| R-B01 | Regulatory non-compliance SFC / Habeas Data | Compliance | HIGH | HIGH | 🔴 Critical | Partial |
+| R-B02 | Fraud / Money laundering | Compliance | HIGH | HIGH | 🔴 Critical | Unmitigated |
+| R-B03 | Double charge to end user | Business | HIGH | HIGH | 🔴 Critical | Partial |
+| R-T06 | DNS Rebinding in webhook URLs | Security | HIGH | HIGH | 🔴 Critical | Documented |
+| R-S01 | API key leak / compromise | Security | HIGH | HIGH | 🔴 Critical | Partial |
+| R-T07 | MySQL single point of failure | Technical | MEDIUM | HIGH | 🟠 High | Unmitigated |
+| R-P01 | Provider API changes without notice | Third-Party | MEDIUM | HIGH | 🟠 High | Unmitigated |
+| R-S03 | Insider threat | Security | MEDIUM | HIGH | 🟠 High | Unmitigated |
+| R-O03 | Total payment provider outage | Operational | MEDIUM | HIGH | 🟠 High | Unmitigated |
+| R-S02 | PII in logs | Security | LOW | HIGH | 🟠 High | Mitigated |
+| R-T05 | Brute-force protection not implemented | Technical | HIGH | MEDIUM | 🟠 High | Pending |
+| R-S04 | Dependency compromise (supply chain) | Security | MEDIUM | MEDIUM | 🟡 Medium | Partial |
+| R-T02 | Schema divergence test vs production | Technical | MEDIUM | MEDIUM | 🟡 Medium | Pending |
+| R-T01 | Coupling with new provider | Technical | LOW | MEDIUM | 🟡 Medium | Mitigated |
+| R-O04 | Configuration drift between environments | Operational | MEDIUM | MEDIUM | 🟡 Medium | Unmitigated |
+| R-P02 | Webhook delivery failure to merchant | Third-Party | MEDIUM | MEDIUM | 🟡 Medium | Unmitigated |
+| R-O02 | Maximum amount misconfiguration | Operational | LOW | MEDIUM | 🟢 Low | Mitigated |
+| R-O01 | No disaster recovery plan | Operational | LOW | LOW | 🟢 Low | Unmitigated |
 
 ---
 
-## Riesgos Técnicos
+## Technical Risks
 
-### R-T01 — Acoplamiento con Nuevo Proveedor
-**Probabilidad**: BAJA | **Impacto**: MEDIO | **Severidad**: 🟡 Media | **Estado**: ✅ Mitigado
+### R-T01 — Coupling with New Provider
+**Probability**: LOW | **Impact**: MEDIUM | **Severity**: 🟡 Medium | **Status**: ✅ Mitigated
 
-**Descripción**: Agregar un nuevo proveedor de pago (Nequi, Bre-B, PSE) requiere implementar un adaptador completo con cliente HTTP, manejo de errores y lógica de reintento.
+**Description**: Adding a new payment provider (Nequi, Bre-B, PSE) requires implementing a complete adapter with an HTTP client, error handling, and retry logic.
 
-**Indicador de detección**: Tiempo de integración de nuevo proveedor > 2 semanas.
+**Detection indicator**: New provider integration time > 2 weeks.
 
-**Mitigación aplicada**:
-- `PaymentProviderPort` define un contrato mínimo y estable (Hexagonal Architecture).
-- Adaptadores se desarrollan de forma independiente sin modificar el core.
-- `MockPaymentProvider` sirve como referencia de implementación.
+**Applied mitigation**:
+- `PaymentProviderPort` defines a minimal and stable contract (Hexagonal Architecture).
+- Adapters are developed independently without modifying the core.
+- `MockPaymentProvider` serves as an implementation reference.
 
-**Acciones pendientes**:
-1. Documentar la guía de implementación de adaptadores con checklist.
-2. Crear un adaptador de prueba (`EchoPaymentProvider`) que refleje el request como respuesta, útil para testing de merchants en sandbox.
+**Pending actions**:
+1. Document the adapter implementation guide with a checklist.
+2. Create a test adapter (`EchoPaymentProvider`) that mirrors the request as a response, useful for merchant testing in sandbox.
 
 ---
 
-### R-T02 — Divergencia de Esquema Test vs Producción
-**Probabilidad**: MEDIA | **Impacto**: MEDIO | **Severidad**: 🟡 Media | **Estado**: ⏳ Pendiente
+### R-T02 — Schema Divergence Test vs Production
+**Probability**: MEDIUM | **Impact**: MEDIUM | **Severity**: 🟡 Medium | **Status**: ⏳ Pending
 
-**Descripción**: Los tests unitarios usan H2 in-memory con esquema generado por Hibernate (`ddl-auto: create`). MySQL 8 con Flyway puede tener comportamientos diferentes en collation, tipos de datos, y restricciones de clave foránea. Un bug puede pasar tests y fallar en producción.
+**Description**: Unit tests use H2 in-memory with schema generated by Hibernate (`ddl-auto: create`). MySQL 8 with Flyway may behave differently in collation, data types, and foreign key constraints. A bug can pass tests and fail in production.
 
-**Indicador de detección**: Error de `FlywayMigrationException` o `DataIntegrityViolationException` en despliegue a staging que no ocurrió en tests.
+**Detection indicator**: `FlywayMigrationException` or `DataIntegrityViolationException` error on staging deployment that did not occur in tests.
 
-**Acciones de mitigación**:
-1. Agregar tests de integración con **Testcontainers** (`mysql:8.0`) que ejecuten las migraciones Flyway reales.
-2. Separar tests unitarios (H2) de tests de integración (MySQL) con perfiles de Maven (`-P integration`).
-3. Ejecutar los tests de integración en el pipeline de CI en la rama `develop`.
-4. Añadir anotación `@FlywayTest` para rollback automático entre tests de integración.
+**Mitigation actions**:
+1. Add integration tests with **Testcontainers** (`mysql:8.0`) that execute the real Flyway migrations.
+2. Separate unit tests (H2) from integration tests (MySQL) using Maven profiles (`-P integration`).
+3. Run integration tests in the CI pipeline on the `develop` branch.
+4. Add `@FlywayTest` annotation for automatic rollback between integration tests.
 
 ```java
 @SpringBootTest
@@ -1265,55 +1277,55 @@ class FlywayMigrationIT {
 
     @Test
     void allMigrationsShouldApplyCleanly() {
-        // Si Spring arranca, las migraciones pasaron
+        // If Spring starts, migrations passed
     }
 }
 ```
 
 ---
 
-### R-T03 — Receptor de Webhooks del Proveedor Ausente
-**Probabilidad**: ALTA | **Impacto**: ALTO | **Severidad**: 🔴 Crítica | **Estado**: ❌ Pendiente
+### R-T03 — Missing Provider Webhook Receiver
+**Probability**: HIGH | **Impact**: HIGH | **Severity**: 🔴 Critical | **Status**: ❌ Pending
 
-**Descripción**: No existe endpoint para recibir notificaciones asíncronas del proveedor. Las transacciones quedan en estado `PROCESSING` indefinidamente. Sin resolución de estado, el merchant no puede confirmar el pago ni liberar el pedido.
+**Description**: There is no endpoint to receive asynchronous notifications from the provider. Transactions remain in `PROCESSING` state indefinitely. Without status resolution, the merchant cannot confirm the payment or release the order.
 
-**Indicador de detección**:
-- Alerta: `COUNT(*) WHERE status = 'PROCESSING' AND created_at < NOW() - INTERVAL 10 MINUTE > 0`
-- Dashboard: tasa de transacciones que nunca abandonan `PROCESSING`.
+**Detection indicator**:
+- Alert: `COUNT(*) WHERE status = 'PROCESSING' AND created_at < NOW() - INTERVAL 10 MINUTE > 0`
+- Dashboard: rate of transactions that never leave `PROCESSING`.
 
-**Acciones de mitigación** (bloqueante para producción):
-1. Implementar `POST /api/v1/webhooks/{provider}` con verificación de firma HMAC.
-2. Implementar `UpdateTransactionStatusUseCase` con validación de transición de estado (`PROCESSING → APPROVED/REJECTED`).
-3. Usar idempotencia en el receptor: ignorar `event_id` ya procesados (Redis SET NX).
-4. Agregar `@Scheduled` job cada 5 minutos para marcar como `EXPIRED` las transacciones en `PROCESSING` pasado su `expiration_time`.
-5. Emitir evento al merchant (webhook de salida) cuando el estado cambie.
-
----
-
-### R-T05 — Brute-Force Protection No Implementada
-**Probabilidad**: ALTA | **Impacto**: MEDIO | **Severidad**: 🟠 Alta | **Estado**: ❌ Pendiente
-
-**Descripción**: No existe ningún mecanismo de bloqueo automático por IP ante intentos de autenticación repetidos. Un atacante puede probar combinaciones de API keys de forma ilimitada. Los intentos fallidos sólo quedan en logs.
-
-**Indicador de detección**: Log pattern: `security.invalid_api_key` repetido con alta frecuencia desde la misma IP en un período corto.
-
-**Acciones de mitigación** (ver Next Steps — Fase 1):
-1. Implementar `BruteForceProtectionService` con contadores en Redis (`INCR` / `EXPIRE` atómicos).
-2. Integrar el bloqueo en `ApiKeyAuthFilter` antes de la validación de clave.
-3. Retornar HTTP 429 con header `Retry-After` cuando la IP esté bloqueada.
-4. Configurar alerta en el agregador de logs cuando `security.invalid_api_key` > 10 eventos/min por IP.
+**Mitigation actions** (blocking for production):
+1. Implement `POST /api/v1/webhooks/{provider}` with HMAC signature verification.
+2. Implement `UpdateTransactionStatusUseCase` with state transition validation (`PROCESSING → APPROVED/REJECTED`).
+3. Use idempotency in the receiver: ignore already-processed `event_id` values (Redis SET NX).
+4. Add `@Scheduled` job every 5 minutes to mark as `EXPIRED` those transactions stuck in `PROCESSING` past their `expiration_time`.
+5. Emit event to the merchant (outbound webhook) when the status changes.
 
 ---
 
-### R-T06 — DNS Rebinding en URLs de Webhook
-**Probabilidad**: ALTA | **Impacto**: ALTO | **Severidad**: 🔴 Crítica | **Estado**: ⚠️ Documentado
+### R-T05 — Brute-Force Protection Not Implemented
+**Probability**: HIGH | **Impact**: MEDIUM | **Severity**: 🟠 High | **Status**: ❌ Pending
 
-**Descripción**: `SsrfGuard` valida la URL en tiempo de request, pero no resuelve DNS. Un atacante registra `malicious.com → 1.2.3.4` (IP pública), pasa validación, luego cambia el DNS a `169.254.169.254` (AWS metadata). Cuando el HTTP client ejecuta el webhook, accede al endpoint interno.
+**Description**: There is no automatic IP blocking mechanism for repeated authentication attempts. An attacker can try API key combinations without limit. Failed attempts are only logged.
 
-**Indicador de detección**: Difícil de detectar sin controles de red. Señal: requests salientes inesperados hacia rangos internos capturados por firewall de egreso.
+**Detection indicator**: Log pattern: `security.invalid_api_key` repeated at high frequency from the same IP within a short period.
 
-**Acciones de mitigación**:
-1. En el HTTP client que ejecuta webhooks, **re-validar la IP resuelta** inmediatamente antes de abrir la conexión TCP:
+**Mitigation actions** (see Next Steps — Phase 1):
+1. Implement `BruteForceProtectionService` with counters in Redis (atomic `INCR` / `EXPIRE`).
+2. Integrate blocking in `ApiKeyAuthFilter` before key validation.
+3. Return HTTP 429 with `Retry-After` header when the IP is blocked.
+4. Configure an alert in the log aggregator when `security.invalid_api_key` > 10 events/min per IP.
+
+---
+
+### R-T06 — DNS Rebinding in Webhook URLs
+**Probability**: HIGH | **Impact**: HIGH | **Severity**: 🔴 Critical | **Status**: ⚠️ Documented
+
+**Description**: `SsrfGuard` validates the URL at request time but does not resolve DNS. An attacker registers `malicious.com → 1.2.3.4` (public IP), passes validation, then changes DNS to `169.254.169.254` (AWS metadata). When the HTTP client executes the webhook, it accesses the internal endpoint.
+
+**Detection indicator**: Difficult to detect without network controls. Signal: unexpected outbound requests toward internal ranges captured by an egress firewall.
+
+**Mitigation actions**:
+1. In the HTTP client that executes webhooks, **re-validate the resolved IP** immediately before opening the TCP connection:
    ```java
    .doOnConnected(conn -> {
        InetSocketAddress addr = (InetSocketAddress) conn.address();
@@ -1324,259 +1336,259 @@ class FlywayMigrationIT {
        }
    })
    ```
-2. Implementar **reglas de egreso en firewall / Security Group** que bloqueen tráfico saliente hacia RFC-1918 y `169.254.0.0/16`.
-3. Configurar **TTL mínimo de DNS** en el cliente (rechazar registros con TTL < 60s como indicador de rebinding).
-4. Usar un **proxy de egreso dedicado** (ej: Squid) con allowlist de dominios autorizados para webhooks.
+2. Implement **egress rules in firewall / Security Group** that block outbound traffic to RFC-1918 and `169.254.0.0/16`.
+3. Configure **minimum DNS TTL** in the client (reject records with TTL < 60s as a rebinding indicator).
+4. Use a **dedicated egress proxy** (e.g., Squid) with an allowlist of authorized domains for webhooks.
 
 ---
 
-### R-T07 — MySQL Punto Único de Falla
-**Probabilidad**: MEDIA | **Impacto**: ALTO | **Severidad**: 🟠 Alta | **Estado**: ❌ Sin mitigar
+### R-T07 — MySQL Single Point of Failure
+**Probability**: MEDIUM | **Impact**: HIGH | **Severity**: 🟠 High | **Status**: ❌ Unmitigated
 
-**Descripción**: Una sola instancia MySQL sin replicación ni failover automático. Una falla de hardware, corrupción de datos o mantenimiento no planeado detiene completamente el servicio.
+**Description**: A single MySQL instance with no replication or automatic failover. A hardware failure, data corruption, or unplanned maintenance completely stops the service.
 
-**Indicador de detección**:
+**Detection indicator**:
 - Health: `GET /actuator/health` → `{"db": {"status": "DOWN"}}`
-- Alerta: `hikaricp_connections_active / hikaricp_connections_max > 0.9` (pool exhausto)
+- Alert: `hikaricp_connections_active / hikaricp_connections_max > 0.9` (pool exhausted)
 
-**Acciones de mitigación**:
-1. Configurar **AWS RDS Multi-AZ**: failover automático a réplica standby en < 60 segundos.
-2. Habilitar **RDS automated backups** con retención de 7 días + point-in-time recovery.
-3. Agregar **read replica** para consultas (`GetTransactionService`) y separar pool de escritura/lectura en HikariCP.
-4. Monitorear conexiones activas de HikariCP: alerta cuando `hikaricp_connections_active / hikaricp_connections_max > 0.9`.
-5. Documentar y probar el **runbook de failover manual** antes del go-live.
-
----
-
-## Riesgos de Seguridad
-
-### R-S01 — Fuga o Compromiso de API Keys
-**Probabilidad**: ALTA | **Impacto**: ALTO | **Severidad**: 🔴 Crítica | **Estado**: ⚠️ Parcial
-
-**Descripción**: Las API keys son la única barrera de autenticación. Si una key es filtrada (commits, logs, Slack, Postman collections compartidas), un atacante puede crear transacciones fraudulentas o consultar datos de clientes hasta que la key sea revocada.
-
-**Indicador de detección**:
-- Tráfico desde IPs desconocidas usando una key existente.
-- `git log -S "test-key"` detecta keys en historial.
-- Herramientas: **GitGuardian**, **TruffleHog**, **AWS Secrets Manager rotation alerts**.
-
-**Acciones de mitigación**:
-1. **Nunca** almacenar keys en código fuente. Usar `.gitignore` para archivos `.env`. Configurar **pre-commit hook** con TruffleHog.
-2. Migrar a **AWS Secrets Manager** o **HashiCorp Vault** con rotación automática (90 días máximo).
-3. Activar **IP whitelist por API key** (`tumipay.orchestrator.security.ip-whitelist`) en producción para todos los merchants.
-4. Implementar **notificación automática** cuando una key se use desde una IP nueva (señal de alerta).
-5. Definir **procedimiento de revocación de emergencia** (< 5 minutos) documentado en runbook.
-6. Usar keys de al menos **32 bytes aleatorios** (256 bits de entropía), no strings predecibles.
-7. Rotar keys de los entornos no-productivos (dev/staging) mensualmente.
+**Mitigation actions**:
+1. Configure **AWS RDS Multi-AZ**: automatic failover to standby replica in < 60 seconds.
+2. Enable **RDS automated backups** with 7-day retention + point-in-time recovery.
+3. Add **read replica** for queries (`GetTransactionService`) and separate read/write pool in HikariCP.
+4. Monitor active HikariCP connections: alert when `hikaricp_connections_active / hikaricp_connections_max > 0.9`.
+5. Document and test the **manual failover runbook** before go-live.
 
 ---
 
-### R-S02 — PII en Logs
-**Probabilidad**: BAJA | **Impacto**: ALTO | **Severidad**: 🟠 Alta | **Estado**: ✅ Mitigado (verificar periódicamente)
+## Security Risks
 
-**Descripción**: Datos personales del cliente (correo, número de documento, teléfono, nombre) podrían aparecer en logs si se agrega un `log.debug(transaction.toString())` o similar. Esto viola la Ley 1581/2012 (Habeas Data) y puede resultar en sanciones de la SIC.
+### R-S01 — API Key Leak or Compromise
+**Probability**: HIGH | **Impact**: HIGH | **Severity**: 🔴 Critical | **Status**: ⚠️ Partial
 
-**Indicador de detección**: Búsqueda periódica en logs: `grep -E "[0-9]{10}|@[a-z]+\.[a-z]+" /var/log/app/*.log`
+**Description**: API keys are the only authentication barrier. If a key is leaked (commits, logs, Slack, shared Postman collections), an attacker can create fraudulent transactions or query customer data until the key is revoked.
 
-**Mitigación aplicada**:
-- `@ToString(exclude = {"email", "documentNumber", "phoneNumber"})` en `Customer`.
-- Filters loguean solo metadata del request (método, URI, correlation ID) — nunca el body.
-- Logback configurado para enmascarar patrones de email y CC con `MaskingPatternLayout`.
+**Detection indicator**:
+- Traffic from unknown IPs using an existing key.
+- `git log -S "test-key"` detects keys in history.
+- Tools: **GitGuardian**, **TruffleHog**, **AWS Secrets Manager rotation alerts**.
 
-**Acciones pendientes**:
-1. Ejecutar **auditoría trimestral de logs** para verificar que no aparecen campos PII.
-2. Configurar **Data Masking en el agregador de logs** (ELK/Splunk) como segunda línea de defensa.
-3. Definir **política de retención de logs**: máximo 90 días para logs de aplicación, 1 año para logs de auditoría (sin PII).
-4. Agregar test automatizado que verifique que `Customer.toString()` no expone campos sensibles.
-
----
-
-### R-S03 — Amenaza Interna (Insider Threat)
-**Probabilidad**: MEDIA | **Impacto**: ALTO | **Severidad**: 🟠 Alta | **Estado**: ❌ Sin mitigar
-
-**Descripción**: Un empleado con acceso a la BD de producción, a los secretos o al código puede exfiltrar datos de clientes, modificar transacciones o insertar código malicioso.
-
-**Indicador de detección**: Accesos a BD fuera de horario laboral, queries de `SELECT *` masivos, modificaciones directas en tablas de producción.
-
-**Acciones de mitigación**:
-1. **Principio de mínimo privilegio**: acceso a BD de producción solo mediante herramientas auditadas (no cliente SQL directo); acceso requiere aprobación y tiene TTL.
-2. Habilitar **MySQL Audit Plugin** o **AWS RDS Enhanced Monitoring** para registrar todas las queries.
-3. Implementar **separación de ambientes**: los desarrolladores no tienen acceso a producción por defecto.
-4. Activar **MFA** para acceso a AWS Console y secrets.
-5. Configurar alertas en CloudTrail para: acceso a secrets en horario inusual, queries masivos, cambios de IAM.
-6. Aplicar **Breakglass Access** para emergencias: acceso temporal con doble aprobación y auditoría completa.
+**Mitigation actions**:
+1. **Never** store keys in source code. Use `.gitignore` for `.env` files. Configure a **pre-commit hook** with TruffleHog.
+2. Migrate to **AWS Secrets Manager** or **HashiCorp Vault** with automatic rotation (90 days maximum).
+3. Enable **IP whitelist per API key** (`tumipay.orchestrator.security.ip-whitelist`) in production for all merchants.
+4. Implement **automatic notification** when a key is used from a new IP (alert signal).
+5. Define an **emergency revocation procedure** (< 5 minutes) documented in a runbook.
+6. Use keys of at least **32 random bytes** (256 bits of entropy), not predictable strings.
+7. Rotate keys for non-production environments (dev/staging) monthly.
 
 ---
 
-### R-S04 — Compromiso de Dependencias (Supply Chain)
-**Probabilidad**: MEDIA | **Impacto**: MEDIO | **Severidad**: 🟡 Media | **Estado**: ⚠️ Parcial
+### R-S02 — PII in Logs
+**Probability**: LOW | **Impact**: HIGH | **Severity**: 🟠 High | **Status**: ✅ Mitigated (verify periodically)
 
-**Descripción**: Una dependencia de Maven maliciosa o comprometida (`log4shell`, `xz-utils`) puede afectar al servicio. Con ~80 dependencias directas y transitivas, la superficie de ataque es significativa.
+**Description**: Customer personal data (email, document number, phone, name) could appear in logs if `log.debug(transaction.toString())` or similar is added. This violates Law 1581/2012 (Habeas Data) and can result in SIC sanctions.
 
-**Indicador de detección**: CVE publicado para una librería usada en el proyecto.
+**Detection indicator**: Periodic log search: `grep -E "[0-9]{10}|@[a-z]+\.[a-z]+" /var/log/app/*.log`
 
-**Mitigación aplicada**:
-- OWASP Dependency Check en el pipeline de CI (`mvn dependency-check:check`).
+**Applied mitigation**:
+- `@ToString(exclude = {"email", "documentNumber", "phoneNumber"})` in `Customer`.
+- Filters log only request metadata (method, URI, correlation ID) — never the body.
+- Logback configured to mask email and CC patterns with `MaskingPatternLayout`.
 
-**Acciones pendientes**:
-1. Habilitar **GitHub Dependabot** o **Snyk** para alertas automáticas de CVEs en dependencias.
-2. Usar **Maven Enforcer Plugin** para prohibir versiones con CVEs conocidos (`<bannedDependencies>`).
-3. Configurar **Artifactory / Nexus** como proxy de Maven con escaneo de artefactos antes de cachear.
-4. Pinear versiones exactas de todas las dependencias (evitar rangos `[1.0,2.0)` en producción).
-5. Suscribirse a boletines de seguridad de Spring, MySQL Connector y Resilience4j.
-
----
-
-## Riesgos de Cumplimiento
-
-### R-B01 — Incumplimiento Regulatorio (SFC / Habeas Data / PCI DSS)
-**Probabilidad**: ALTA | **Impacto**: ALTO | **Severidad**: 🔴 Crítica | **Estado**: ⚠️ Parcial
-
-**Descripción**: Como plataforma de pagos en Colombia, TumiPay opera bajo:
-- **Circular 052/2007 SFC**: estándares de seguridad para operaciones en banca electrónica.
-- **Ley 1581/2012**: protección de datos personales (Habeas Data).
-- **PCI DSS**: aplica si se procesan datos de tarjetas de crédito directamente.
-- **SAGRILAFT**: sistema de autocontrol contra lavado de activos.
-
-**Indicador de detección**: Visita de inspección de la SFC, queja formal de un usuario, brecha de datos reportada.
-
-**Acciones de mitigación**:
-1. Contratar **asesoría legal especializada** en fintech colombiano antes del go-live.
-2. Implementar **registro de auditoría inmutable** de todas las operaciones (quién, qué, cuándo) — tabla `audit_events` en BD separada.
-3. Definir y publicar **Política de Privacidad** y **Aviso de Privacidad** conforme a Ley 1581.
-4. Implementar **mecanismo de revocación de consentimiento** (derecho de supresión de datos).
-5. Si se procesan tarjetas directamente: iniciar proceso de **certificación PCI DSS SAQ-A o SAQ-D** con un QSA certificado.
-6. Establecer **programa SAGRILAFT**: señales de alerta de LA/FT, listas restrictivas (OFAC, ONU, UIAF).
+**Pending actions**:
+1. Run a **quarterly log audit** to verify no PII fields appear.
+2. Configure **Data Masking in the log aggregator** (ELK/Splunk) as a second line of defense.
+3. Define a **log retention policy**: maximum 90 days for application logs, 1 year for audit logs (no PII).
+4. Add an automated test verifying that `Customer.toString()` does not expose sensitive fields.
 
 ---
 
-### R-B02 — Fraude y Lavado de Activos (AML/CFT)
-**Probabilidad**: ALTA | **Impacto**: ALTO | **Severidad**: 🔴 Crítica | **Estado**: ❌ Sin mitigar
+### R-S03 — Insider Threat
+**Probability**: MEDIUM | **Impact**: HIGH | **Severity**: 🟠 High | **Status**: ❌ Unmitigated
 
-**Descripción**: La plataforma puede ser usada para fraccionar transacciones grandes (smurfing), crear transacciones ficticias entre cuentas controladas, o probar tarjetas robadas a pequeña escala (carding). Sin controles de AML, TumiPay es cómplice pasivo.
+**Description**: An employee with access to the production database, secrets, or code can exfiltrate customer data, modify transactions, or insert malicious code.
 
-**Indicador de detección**: Patrones inusuales: muchas transacciones pequeñas desde el mismo IP, mismo merchant con múltiples documentos distintos, rechazos de proveedor por tarjetas inválidas.
+**Detection indicator**: Database accesses outside business hours, bulk `SELECT *` queries, direct modifications to production tables.
 
-**Acciones de mitigación**:
-1. Implementar **motor de reglas antifraude** (score por transacción):
-   - Velocidad: > 5 transacciones por minuto desde mismo merchant → alerta.
-   - Umbral: transacciones fraccionadas que suman > umbral de reporte UIAF (actualmente $10M COP).
-   - Geolocalización: IP del request vs. país declarado en la transacción.
-2. Integrar con **listas restrictivas** (OFAC SDN, listas ONU, listas UIAF Colombia).
-3. Implementar **reporte automático de operaciones sospechosas** (ROS) a la UIAF cuando se detecten patrones AML.
-4. Agregar campo `risk_score` en la transacción, calculado antes de enviar al proveedor.
-5. Revisar con asesoría legal el umbral de reporte en efectivo y operaciones inusuales.
+**Mitigation actions**:
+1. **Principle of least privilege**: production database access only via audited tools (no direct SQL client); access requires approval and has a TTL.
+2. Enable **MySQL Audit Plugin** or **AWS RDS Enhanced Monitoring** to record all queries.
+3. Implement **environment separation**: developers do not have production access by default.
+4. Enable **MFA** for AWS Console and secrets access.
+5. Configure CloudTrail alerts for: secrets access at unusual times, bulk queries, IAM changes.
+6. Apply **Breakglass Access** for emergencies: temporary access with dual approval and full audit trail.
 
 ---
 
-### R-B03 — Cobro Doble al Usuario Final
-**Probabilidad**: ALTA | **Impacto**: ALTO | **Severidad**: 🔴 Crítica | **Estado**: ⚠️ Parcial
+### R-S04 — Dependency Compromise (Supply Chain)
+**Probability**: MEDIUM | **Impact**: MEDIUM | **Severity**: 🟡 Medium | **Status**: ⚠️ Partial
 
-**Descripción**: Si hay un timeout en la llamada al proveedor y el sistema reintenta (Resilience4j Retry), el proveedor puede haber procesado el primer intento exitosamente mientras el retry crea un segundo cobro. El usuario final ve dos débitos.
+**Description**: A malicious or compromised Maven dependency (`log4shell`, `xz-utils`) can affect the service. With ~80 direct and transitive dependencies, the attack surface is significant.
 
-**Indicador de detección**: Reclamación del usuario, divergencia entre transacciones en estado `APPROVED` y transacciones confirmadas por el proveedor.
+**Detection indicator**: CVE published for a library used in the project.
 
-**Mitigación aplicada**:
-- Idempotencia de 3 capas (Redis + DB + @Version) previene duplicados en el lado del orchestrator.
-- Resilience4j Retry ignora `ValidationException` y `DuplicateTransactionException`.
+**Applied mitigation**:
+- OWASP Dependency Check in the CI pipeline (`mvn dependency-check:check`).
 
-**Acciones pendientes**:
-1. Al llamar al proveedor, **enviar `client_transaction_id` como idempotency key del proveedor** (`Idempotency-Key` header en PSE/Nequi). Si el proveedor lo soporta, garantiza que el reintento devuelve el resultado del primer intento.
-2. Antes de reintentar, **consultar estado de la transacción en el proveedor** (`GET /provider/transaction/{id}`) para verificar si ya fue procesada.
-3. Implementar **reconciliación diaria automatizada**: comparar todas las transacciones `APPROVED` del orchestrator contra el reporte de transacciones del proveedor.
-4. Definir **SLA de resolución de disputas** (< 24h para doble cobro) y proceso de reembolso documentado.
-
----
-
-## Riesgos Operacionales
-
-### R-O01 — Sin Plan de Recuperación ante Desastre (DRP)
-**Probabilidad**: BAJA | **Impacto**: BAJO | **Severidad**: 🟢 Baja | **Estado**: ❌ Sin mitigar
-
-**Descripción**: No existe un DRP documentado ni probado. En caso de pérdida total del ambiente (AWS region down, eliminación accidental de recursos), el tiempo de recuperación es desconocido.
-
-**Acciones de mitigación**:
-1. Documentar **RTO** (Recovery Time Objective) y **RPO** (Recovery Point Objective) acordados con el negocio.
-2. Configurar **backups automatizados de RDS** con restauración verificada mensualmente.
-3. Mantener **IaC (Terraform)** del ambiente completo para poder recrear en otra región en < 2 horas.
-4. Ejecutar **simulacro de recuperación** semestral (chaos engineering controlado).
+**Pending actions**:
+1. Enable **GitHub Dependabot** or **Snyk** for automatic CVE alerts on dependencies.
+2. Use **Maven Enforcer Plugin** to prohibit versions with known CVEs (`<bannedDependencies>`).
+3. Configure **Artifactory / Nexus** as a Maven proxy with artifact scanning before caching.
+4. Pin exact versions of all dependencies (avoid ranges `[1.0,2.0)` in production).
+5. Subscribe to security bulletins for Spring, MySQL Connector, and Resilience4j.
 
 ---
 
-### R-O02 — Error de Configuración del Monto Máximo
-**Probabilidad**: BAJA | **Impacto**: MEDIO | **Severidad**: 🟢 Baja | **Estado**: ✅ Mitigado
+## Compliance Risks
 
-**Descripción**: Si `MAX_AMOUNT_CENTS` se configura incorrectamente (ej: `0` o un valor extremadamente alto), se pueden bloquear todas las transacciones o permitir montos anómalos.
+### R-B01 — Regulatory Non-Compliance (SFC / Habeas Data / PCI DSS)
+**Probability**: HIGH | **Impact**: HIGH | **Severity**: 🔴 Critical | **Status**: ⚠️ Partial
 
-**Mitigación aplicada**:
-- Validación en `TransactionDomainValidator`: `amount > 0 AND amount ≤ maxAmountCents`.
-- Default seguro: `10,000,000,000` centavos = $100,000,000 COP.
+**Description**: As a payments platform in Colombia, TumiPay operates under:
+- **Circular 052/2007 SFC**: security standards for electronic banking operations.
+- **Law 1581/2012**: personal data protection (Habeas Data).
+- **PCI DSS**: applies if credit card data is processed directly.
+- **SAGRILAFT**: self-control system against money laundering.
 
-**Acciones pendientes**:
-1. Agregar validación al arrancar la aplicación (`@PostConstruct`) que verifique `maxAmountCents > 0`.
-2. Implementar alerta si `maxAmountCents` cambia más de un 10x respecto al valor anterior (cambio anómalo de configuración).
+**Detection indicator**: SFC inspection visit, formal user complaint, reported data breach.
 
----
-
-### R-O03 — Caída Total del Proveedor de Pago
-**Probabilidad**: MEDIA | **Impacto**: ALTO | **Severidad**: 🟠 Alta | **Estado**: ❌ Sin mitigar
-
-**Descripción**: Si PSE (o el proveedor principal) cae, todas las transacciones de ese método de pago fallan. El Circuit Breaker abre, pero no existe proveedor de respaldo configurado.
-
-**Indicador de detección**: Circuit Breaker en estado `OPEN` por > 1 minuto, tasa de error > 50%.
-
-**Acciones de mitigación**:
-1. Implementar **proveedor de fallback** por método de pago: si PSE falla, intentar con una pasarela alternativa compatible.
-2. Exponer **endpoint de estado de proveedores** (`GET /api/v1/providers/health`) para que el merchant pueda mostrar métodos disponibles en su checkout.
-3. Configurar **notificación automática al merchant** cuando su método de pago principal queda indisponible.
-4. Suscribirse a las **páginas de status de cada proveedor** (status.pse.com.co, etc.) e integrar con PagerDuty.
+**Mitigation actions**:
+1. Hire **specialized legal counsel** in Colombian fintech before go-live.
+2. Implement an **immutable audit log** of all operations (who, what, when) — `audit_events` table in a separate database.
+3. Define and publish a **Privacy Policy** and **Privacy Notice** in accordance with Law 1581.
+4. Implement a **consent revocation mechanism** (right to data erasure).
+5. If processing cards directly: begin **PCI DSS SAQ-A or SAQ-D certification** process with a certified QSA.
+6. Establish a **SAGRILAFT program**: ML/TF alert signals, restrictive lists (OFAC, UN, UIAF).
 
 ---
 
-### R-O04 — Drift de Configuración entre Entornos
-**Probabilidad**: MEDIA | **Impacto**: MEDIO | **Severidad**: 🟡 Media | **Estado**: ❌ Sin mitigar
+### R-B02 — Fraud and Money Laundering (AML/CFT)
+**Probability**: HIGH | **Impact**: HIGH | **Severity**: 🔴 Critical | **Status**: ❌ Unmitigated
 
-**Descripción**: Con el tiempo, las configuraciones de `dev`, `staging` y `prod` divergen. Un parámetro de seguridad (ej: `API_KEYS` con keys de prueba en prod) puede enmascarar vulnerabilidades durante el desarrollo.
+**Description**: The platform can be used to split large transactions (smurfing), create fictitious transactions between controlled accounts, or test stolen cards at a small scale (carding). Without AML controls, TumiPay is a passive accomplice.
 
-**Acciones de mitigación**:
-1. Usar **GitOps**: todas las configuraciones de todos los entornos versionadas en el mismo repositorio bajo `/config/{env}/`.
-2. Implementar **Config Drift Detector**: script que compara keys de configuración entre entornos y alerta si hay diferencias no esperadas.
-3. Revisar configuraciones de seguridad en **checklist de pre-deploy** a producción.
-4. Usar **Spring Cloud Config Server** para centralizar y auditar cambios de configuración.
+**Detection indicator**: Unusual patterns: many small transactions from the same IP, same merchant with multiple distinct documents, provider rejections for invalid cards.
 
----
-
-## Riesgos de Terceros
-
-### R-P01 — Cambios de API del Proveedor sin Aviso
-**Probabilidad**: MEDIA | **Impacto**: ALTO | **Severidad**: 🟠 Alta | **Estado**: ❌ Sin mitigar
-
-**Descripción**: Un proveedor actualiza su API (nueva versión, campos obligatorios, cambio de autenticación) sin aviso suficiente. Los adaptadores dejan de funcionar en producción.
-
-**Indicador de detección**: Incremento súbito de errores `PaymentProviderException` en logs, Circuit Breaker en OPEN.
-
-**Acciones de mitigación**:
-1. Establecer **contrato formal SLA de notificación de cambios** (mínimo 30 días de aviso) con cada proveedor.
-2. Implementar **tests de contrato** (Pact) entre el adaptador y el mock del proveedor, ejecutados en CI.
-3. Mantener **canal de comunicación directo** con el equipo técnico de cada proveedor.
-4. Versionar las integraciones: `PsePaymentProviderAdapterV1`, `PsePaymentProviderAdapterV2` conviven durante migración.
-5. Monitorear el **endpoint de health del proveedor** y sus changelogs / release notes automáticamente.
+**Mitigation actions**:
+1. Implement an **anti-fraud rules engine** (score per transaction):
+   - Velocity: > 5 transactions per minute from the same merchant → alert.
+   - Threshold: fractioned transactions summing to > UIAF reporting threshold (currently $10M COP).
+   - Geolocation: request IP vs. country declared in the transaction.
+2. Integrate with **restrictive lists** (OFAC SDN, UN lists, UIAF Colombia lists).
+3. Implement **automatic suspicious activity reporting** (SAR) to the UIAF when AML patterns are detected.
+4. Add a `risk_score` field to the transaction, calculated before sending to the provider.
+5. Review with legal counsel the cash reporting threshold and unusual transaction thresholds.
 
 ---
 
-### R-P02 — Fallo de Entrega de Webhooks al Merchant
-**Probabilidad**: MEDIA | **Impacto**: MEDIO | **Severidad**: 🟡 Media | **Estado**: ❌ Sin mitigar
+### R-B03 — Double Charge to End User
+**Probability**: HIGH | **Impact**: HIGH | **Severity**: 🔴 Critical | **Status**: ⚠️ Partial
 
-**Descripción**: Cuando el estado de una transacción cambia (APPROVED/REJECTED), el orchestrator debe notificar al merchant via webhook. Si el endpoint del merchant está caído, la notificación se pierde y el merchant no libera el pedido.
+**Description**: If there is a timeout in the provider call and the system retries (Resilience4j Retry), the provider may have processed the first attempt successfully while the retry creates a second charge. The end user sees two debits.
 
-**Indicador de detección**: Respuestas HTTP 5xx al `webhook_url` del merchant; transacciones en estado final sin notificación confirmada.
+**Detection indicator**: User complaint, divergence between transactions in `APPROVED` state and transactions confirmed by the provider.
 
-**Acciones de mitigación**:
-1. Implementar **Outbox Pattern**: registrar el evento de notificación en la misma transacción de BD que actualiza el estado.
-2. **Relay service con reintento exponencial**: 1s → 2s → 4s → 8s → 16s → 30s → 60s (máximo 10 intentos en 24h).
-3. Si todos los reintentos fallan, **notificar al merchant por email** como fallback y marcar el evento como `EXHAUSTED`.
-4. Exponer **endpoint de consulta de estado** (`GET /api/v1/transactions/{id}`) para que el merchant pueda hacer polling como alternativa.
-5. Registrar en `audit_events` cada intento de entrega: timestamp, HTTP status, respuesta, número de intento.
+**Applied mitigation**:
+- 3-layer idempotency (Redis + DB + @Version) prevents duplicates on the orchestrator side.
+- Resilience4j Retry ignores `ValidationException` and `DuplicateTransactionException`.
+
+**Pending actions**:
+1. When calling the provider, **send `client_transaction_id` as the provider's idempotency key** (`Idempotency-Key` header in PSE/Nequi). If the provider supports it, this guarantees that the retry returns the result of the first attempt.
+2. Before retrying, **query the transaction status at the provider** (`GET /provider/transaction/{id}`) to verify if it was already processed.
+3. Implement **automated daily reconciliation**: compare all `APPROVED` transactions in the orchestrator against the provider's transaction report.
+4. Define a **dispute resolution SLA** (< 24h for double charges) and a documented refund process.
+
+---
+
+## Operational Risks
+
+### R-O01 — No Disaster Recovery Plan (DRP)
+**Probability**: LOW | **Impact**: LOW | **Severity**: 🟢 Low | **Status**: ❌ Unmitigated
+
+**Description**: There is no documented or tested DRP. In the event of total environment loss (AWS region down, accidental resource deletion), recovery time is unknown.
+
+**Mitigation actions**:
+1. Document **RTO** (Recovery Time Objective) and **RPO** (Recovery Point Objective) agreed with the business.
+2. Configure **automated RDS backups** with monthly verified restoration.
+3. Maintain **IaC (Terraform)** for the full environment to be able to recreate it in another region in < 2 hours.
+4. Run a **semi-annual recovery drill** (controlled chaos engineering).
+
+---
+
+### R-O02 — Maximum Amount Misconfiguration
+**Probability**: LOW | **Impact**: MEDIUM | **Severity**: 🟢 Low | **Status**: ✅ Mitigated
+
+**Description**: If `MAX_AMOUNT_CENTS` is misconfigured (e.g., `0` or an extremely high value), all transactions can be blocked or anomalous amounts allowed.
+
+**Applied mitigation**:
+- Validation in `TransactionDomainValidator`: `amount > 0 AND amount ≤ maxAmountCents`.
+- Safe default: `10,000,000,000` cents = $100,000,000 COP.
+
+**Pending actions**:
+1. Add validation on application startup (`@PostConstruct`) that verifies `maxAmountCents > 0`.
+2. Implement an alert if `maxAmountCents` changes by more than 10x relative to the previous value (anomalous configuration change).
+
+---
+
+### R-O03 — Total Payment Provider Outage
+**Probability**: MEDIUM | **Impact**: HIGH | **Severity**: 🟠 High | **Status**: ❌ Unmitigated
+
+**Description**: If PSE (or the main provider) goes down, all transactions for that payment method fail. The Circuit Breaker opens, but no fallback provider is configured.
+
+**Detection indicator**: Circuit Breaker in `OPEN` state for > 1 minute, error rate > 50%.
+
+**Mitigation actions**:
+1. Implement a **fallback provider** per payment method: if PSE fails, try a compatible alternative gateway.
+2. Expose a **provider status endpoint** (`GET /api/v1/providers/health`) so the merchant can display available methods in their checkout.
+3. Configure **automatic notification to the merchant** when their primary payment method becomes unavailable.
+4. Subscribe to **each provider's status pages** (status.pse.com.co, etc.) and integrate with PagerDuty.
+
+---
+
+### R-O04 — Configuration Drift Between Environments
+**Probability**: MEDIUM | **Impact**: MEDIUM | **Severity**: 🟡 Medium | **Status**: ❌ Unmitigated
+
+**Description**: Over time, `dev`, `staging`, and `prod` configurations diverge. A security parameter (e.g., `API_KEYS` with test keys in prod) can mask vulnerabilities during development.
+
+**Mitigation actions**:
+1. Use **GitOps**: all configurations for all environments versioned in the same repository under `/config/{env}/`.
+2. Implement a **Config Drift Detector**: script that compares configuration keys between environments and alerts if unexpected differences exist.
+3. Review security configurations in the **pre-deploy checklist** for production.
+4. Use **Spring Cloud Config Server** to centralize and audit configuration changes.
+
+---
+
+## Third-Party Risks
+
+### R-P01 — Provider API Changes Without Notice
+**Probability**: MEDIUM | **Impact**: HIGH | **Severity**: 🟠 High | **Status**: ❌ Unmitigated
+
+**Description**: A provider updates their API (new version, required fields, authentication change) without sufficient notice. Adapters stop working in production.
+
+**Detection indicator**: Sudden increase in `PaymentProviderException` errors in logs, Circuit Breaker in OPEN state.
+
+**Mitigation actions**:
+1. Establish a **formal change notification SLA contract** (minimum 30 days notice) with each provider.
+2. Implement **contract tests** (Pact) between the adapter and the provider mock, executed in CI.
+3. Maintain a **direct communication channel** with the technical team of each provider.
+4. Version the integrations: `PsePaymentProviderAdapterV1`, `PsePaymentProviderAdapterV2` coexist during migration.
+5. Automatically monitor the **provider health endpoint** and their changelogs / release notes.
+
+---
+
+### R-P02 — Webhook Delivery Failure to Merchant
+**Probability**: MEDIUM | **Impact**: MEDIUM | **Severity**: 🟡 Medium | **Status**: ❌ Unmitigated
+
+**Description**: When a transaction status changes (APPROVED/REJECTED), the orchestrator must notify the merchant via webhook. If the merchant's endpoint is down, the notification is lost and the merchant cannot release the order.
+
+**Detection indicator**: HTTP 5xx responses to the merchant's `webhook_url`; transactions in a final state without confirmed notification.
+
+**Mitigation actions**:
+1. Implement the **Outbox Pattern**: record the notification event in the same database transaction that updates the status.
+2. **Relay service with exponential retry**: 1s → 2s → 4s → 8s → 16s → 30s → 60s (maximum 10 attempts in 24h).
+3. If all retries fail, **notify the merchant by email** as a fallback and mark the event as `EXHAUSTED`.
+4. Expose a **status query endpoint** (`GET /api/v1/transactions/{id}`) so the merchant can poll as an alternative.
+5. Record in `audit_events` each delivery attempt: timestamp, HTTP status, response, attempt number.
 
 ---
 
@@ -1588,52 +1600,52 @@ This section maps the evolution path from the current MVP to a production-grade,
 
 | Symbol | Meaning |
 |---|---|
-| 🔴 **Crítico** | Bloqueante para go-live en producción |
-| 🟠 **Alto** | Requerido antes de escalar horizontalmente |
-| 🟡 **Medio** | Mejora significativa, planificable en sprints |
-| 🟢 **Bajo** | Nice-to-have / deuda técnica controlada |
+| 🔴 **Critical** | Blocking for go-live in production |
+| 🟠 **High** | Required before horizontal scaling |
+| 🟡 **Medium** | Significant improvement, plannable in sprints |
+| 🟢 **Low** | Nice-to-have / controlled technical debt |
 
 ---
 
-### Fase 1 — MVP → Producción (Sprint 1-3)
+### Phase 1 — MVP → Production (Sprint 1-3)
 
-Estas tareas deben completarse **antes del primer despliegue productivo**. Sin ellas, el sistema tiene brechas funcionales o de seguridad inaceptables.
+These tasks must be completed **before the first production deployment**. Without them, the system has unacceptable functional or security gaps.
 
-#### 🔴 1.1 Receptor de Webhooks del Proveedor (`WebhookController`)
+#### 🔴 1.1 Provider Webhook Receiver (`WebhookController`)
 
-El riesgo más alto del sistema actual (R-003). Las transacciones quedan en estado `PROCESSING` indefinidamente porque no existe un endpoint que reciba la notificación asíncrona del proveedor.
+The highest risk in the current system (R-003). Transactions remain in `PROCESSING` state indefinitely because there is no endpoint to receive the asynchronous notification from the provider.
 
-**Qué implementar:**
+**What to implement:**
 ```
 POST /api/v1/webhooks/{provider}
     │
-    ├─ Verificar firma HMAC del proveedor (header: X-Webhook-Signature)
-    ├─ Idempotencia: ignorar duplicados (mismo event_id ya procesado)
+    ├─ Verify provider HMAC signature (header: X-Webhook-Signature)
+    ├─ Idempotency: ignore duplicates (same event_id already processed)
     ├─ UpdateTransactionStatusUseCase
-    │    ├─ Cargar transacción por provider_transaction_id
-    │    ├─ Validar transición de estado (PROCESSING → APPROVED/REJECTED)
-    │    ├─ Persistir con @Version (optimistic locking)
-    │    └─ Emitir evento de dominio (notificar al merchant)
-    └─ Responder 200 inmediatamente (procesamiento asíncrono)
+    │    ├─ Load transaction by provider_transaction_id
+    │    ├─ Validate state transition (PROCESSING → APPROVED/REJECTED)
+    │    ├─ Persist with @Version (optimistic locking)
+    │    └─ Emit domain event (notify merchant)
+    └─ Respond 200 immediately (async processing)
 ```
 
-**Job de expiración** (complementario): batch que marque como `EXPIRED` las transacciones en `PROCESSING` pasado su `expiration_time`. Ejecutar cada 5 minutos vía `@Scheduled`.
+**Expiration job** (complementary): batch that marks as `EXPIRED` those transactions stuck in `PROCESSING` past their `expiration_time`. Run every 5 minutes via `@Scheduled`.
 
 ---
 
-#### 🔴 1.2 Adaptadores de Proveedores Reales
+#### 🔴 1.2 Real Provider Adapters
 
-Reemplazar `MockPaymentProvider` con adaptadores reales. Cada uno implementa `PaymentProviderPort` — sin cambios al core.
+Replace `MockPaymentProvider` with real adapters. Each one implements `PaymentProviderPort` — no changes to the core.
 
-| Proveedor | Tipo | Complejidad | Prioridad |
+| Provider | Type | Complexity | Priority |
 |---|---|---|---|
-| **PSE** (ACH Colombia) | Redirect flow | Media | Sprint 1 |
-| **Nequi** | Wallet push | Alta | Sprint 2 |
-| **Bre-B** | Real-time rail | Alta | Sprint 2 |
-| **Efecty** | Cash voucher | Media | Sprint 3 |
-| **Tarjetas** (Redeban/Credibanco) | Card processing | Muy alta | Sprint 4 |
+| **PSE** (ACH Colombia) | Redirect flow | Medium | Sprint 1 |
+| **Nequi** | Wallet push | High | Sprint 2 |
+| **Bre-B** | Real-time rail | High | Sprint 2 |
+| **Efecty** | Cash voucher | Medium | Sprint 3 |
+| **Cards** (Redeban/Credibanco) | Card processing | Very high | Sprint 4 |
 
-**Estructura por adaptador:**
+**Adapter structure:**
 ```
 infrastructure/
   outbound/
@@ -1650,37 +1662,37 @@ infrastructure/
 
 ---
 
-#### 🔴 1.3 Gestión de Secretos (Secrets Manager)
+#### 🔴 1.3 Secrets Management (Secrets Manager)
 
-Las API keys y credenciales de BD **no deben vivir en variables de entorno planas** en producción.
+API keys and database credentials **must not live in plain environment variables** in production.
 
-**Migrar a:**
+**Migrate to:**
 ```
 AWS Secrets Manager  →  Spring Cloud AWS Secrets Manager Starter
 HashiCorp Vault      →  Spring Cloud Vault
 ```
 
-**Beneficios concretos:**
-- Rotación de keys sin redeployment
-- Auditoría de acceso a secretos
-- Cifrado en reposo y en tránsito
-- RBAC por rol/servicio
+**Concrete benefits:**
+- Key rotation without redeployment
+- Secrets access audit trail
+- Encryption at rest and in transit
+- RBAC per role/service
 
-**Rotación de API keys sin downtime** (diseño sugerido):
+**API key rotation without downtime** (suggested design):
 ```yaml
-# En lugar de: api-keys: "key-A,key-B"
-# Soportar versiones activas simultáneas durante rotación:
+# Instead of: api-keys: "key-A,key-B"
+# Support simultaneous active versions during rotation:
 api-keys:
   active:   ["key-new-2026"]
-  retiring: ["key-old-2025"]   # Acepta aún, pero loga WARNING
-  revoked:  []                 # Rechaza con 401 + mensaje específico
+  retiring: ["key-old-2025"]   # Still accepted, but logs WARNING
+  revoked:  []                 # Rejected with 401 + specific message
 ```
 
 ---
 
-#### 🔴 1.4 Tests de Integración con Testcontainers
+#### 🔴 1.4 Integration Tests with Testcontainers
 
-Los tests actuales usan H2 in-memory, que diverge de MySQL en comportamiento de índices, collation y Flyway. Esto es R-002.
+Current tests use H2 in-memory, which diverges from MySQL in index behavior, collation, and Flyway. This is R-002.
 
 ```java
 @SpringBootTest
@@ -1700,25 +1712,25 @@ class TransactionPersistenceIT {
 }
 ```
 
-**Cobertura mínima para go-live:**
-- `CreateTransactionService` end-to-end (happy path + idempotencia)
+**Minimum coverage for go-live:**
+- `CreateTransactionService` end-to-end (happy path + idempotency)
 - `ApiKeyAuthFilter` (IP whitelist + key validation)
-- `CorrelationIdFilter` (propagación de correlation ID en headers y MDC)
-- Flyway migrations contra MySQL real
+- `CorrelationIdFilter` (correlation ID propagation in headers and MDC)
+- Flyway migrations against real MySQL
 
 ---
 
 #### 🔴 1.5 Brute-Force Protection (`BruteForceProtectionService`)
 
-Actualmente no existe protección contra intentos repetidos de autenticación. Un atacante puede probar API keys de forma indefinida (R-T05). Este control es bloqueante para producción.
+There is currently no protection against repeated authentication attempts. An attacker can try API keys indefinitely (R-T05). This control is blocking for production.
 
-**Qué implementar:**
+**What to implement:**
 ```java
 // infrastructure/security/BruteForceProtectionService.java
 @Service
 public class BruteForceProtectionService {
 
-    // Redis: INCR + EXPIRE atómicos para contadores distribuidos
+    // Redis: atomic INCR + EXPIRE for distributed counters
     public boolean recordFailedAttempt(String ip) {
         String key = "bf:attempts:" + ip;
         Long attempts = redisTemplate.opsForValue().increment(key);
@@ -1728,7 +1740,7 @@ public class BruteForceProtectionService {
         if (attempts >= maxAttempts) {
             redisTemplate.opsForValue().set("bf:blocked:" + ip, "1",
                 lockoutMinutes, TimeUnit.MINUTES);
-            return true; // IP ahora bloqueada
+            return true; // IP now blocked
         }
         return false;
     }
@@ -1744,9 +1756,9 @@ public class BruteForceProtectionService {
 }
 ```
 
-**Integración en `ApiKeyAuthFilter`** (antes de la validación de clave):
+**Integration in `ApiKeyAuthFilter`** (before key validation):
 ```java
-// Paso 0 — bloqueo por IP (antes de consumir recursos de validación)
+// Step 0 — IP block (before consuming validation resources)
 if (bruteForceProtection.isBlocked(clientIp)) {
     log.warn("security.auth_blocked_by_brute_force ip={}", clientIp);
     writeTooManyRequests(response, "Too many failed attempts. Try again later.", lockoutSeconds);
@@ -1754,24 +1766,24 @@ if (bruteForceProtection.isBlocked(clientIp)) {
 }
 ```
 
-**Variables de entorno a agregar:**
-| Variable | Default | Descripción |
+**Environment variables to add:**
+| Variable | Default | Description |
 |---|---|---|
-| `BRUTE_FORCE_MAX_ATTEMPTS` | `10` | Intentos fallidos antes del bloqueo |
-| `BRUTE_FORCE_WINDOW_MIN` | `5` | Ventana de observación (minutos) |
-| `BRUTE_FORCE_LOCKOUT_MIN` | `15` | Duración del bloqueo (minutos) |
+| `BRUTE_FORCE_MAX_ATTEMPTS` | `10` | Failed attempts before blocking |
+| `BRUTE_FORCE_WINDOW_MIN` | `5` | Observation window (minutes) |
+| `BRUTE_FORCE_LOCKOUT_MIN` | `15` | Block duration (minutes) |
 
-**Usar Redis** desde el inicio — así los contadores son distribuidos y funcionan correctamente con múltiples réplicas en Kubernetes.
+**Use Redis** from the start — this makes counters distributed and working correctly with multiple replicas in Kubernetes.
 
 ---
 
-### Fase 2 — Escala Horizontal (Sprint 4-6)
+### Phase 2 — Horizontal Scaling (Sprint 4-6)
 
-Una vez en producción con una sola instancia, estas tareas permiten escalar a múltiples réplicas en Kubernetes sin pérdida de consistencia en los controles de seguridad.
+Once in production with a single instance, these tasks allow scaling to multiple replicas in Kubernetes without consistency loss in security controls.
 
-#### 🟠 2.1 Rate Limiting (Fase 2)
+#### 🟠 2.1 Rate Limiting (Phase 2)
 
-El servicio actualmente no tiene rate limiting. Para escala horizontal se recomienda implementarlo con **Bucket4j + Redis** para que los contadores sean distribuidos entre réplicas:
+The service currently has no rate limiting. For horizontal scaling it is recommended to implement it with **Bucket4j + Redis** so that counters are distributed across replicas:
 
 ```java
 // RateLimitingFilter — Token Bucket por API key, backend Redis
@@ -1791,9 +1803,9 @@ if (!bucket.tryConsume(1)) {
 
 ---
 
-#### 🟠 2.2 Kubernetes — HPA y Configuración de Probes
+#### 🟠 2.2 Kubernetes — HPA and Probe Configuration
 
-**HorizontalPodAutoscaler** basado en CPU:
+**HorizontalPodAutoscaler** based on CPU:
 ```yaml
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -1811,7 +1823,7 @@ spec:
           averageUtilization: 70
 ```
 
-**Liveness / Readiness / Startup probes** (ya habilitadas en `application.yml`):
+**Liveness / Readiness / Startup probes** (already enabled in `application.yml`):
 ```yaml
 # Kubernetes deployment.yaml
 livenessProbe:
@@ -1836,53 +1848,53 @@ startupProbe:
 
 ---
 
-#### 🟠 2.3 Persistencia — Alta Disponibilidad
+#### 🟠 2.3 Persistence — High Availability
 
-| Componente | Actual | Producción |
+| Component | Current | Production |
 |---|---|---|
 | MySQL | Single instance | AWS RDS Multi-AZ + Read Replica |
 | Redis | Single instance | AWS ElastiCache (cluster mode, 3 shards) |
-| Conexiones | HikariCP 20 max | Separar pool escritura / lectura |
+| Connections | HikariCP 20 max | Separate read / write pool |
 | Backup | Manual | RDS automated backup + point-in-time recovery |
 
-**Read replica para consultas** (ajuste en `application.yml`):
+**Read replica for queries** (adjustment in `application.yml`):
 ```yaml
 spring:
   datasource:
-    # Escritura → primaria
+    # Write → primary
     url: ${DB_PRIMARY_URL}
   datasource-read:
-    # Lectura → réplica (GetTransactionService)
+    # Read → replica (GetTransactionService)
     url: ${DB_REPLICA_URL}
 ```
 
 ---
 
-### Fase 3 — Hardening de Seguridad (Sprint 7-9)
+### Phase 3 — Security Hardening (Sprint 7-9)
 
-#### 🟡 3.1 mTLS entre Servicios Internos
+#### 🟡 3.1 mTLS Between Internal Services
 
-Agregar autenticación mutua TLS para llamadas inter-servicio (orchestrator → provider adapters, orchestrator → webhook dispatcher).
+Add mutual TLS authentication for inter-service calls (orchestrator → provider adapters, orchestrator → webhook dispatcher).
 
 ```
-Orquestador ──[mTLS]──► Adaptador PSE
-            ──[mTLS]──► Adaptador Nequi
-            ──[mTLS]──► Webhook Dispatcher
+Orchestrator ──[mTLS]──► PSE Adapter
+             ──[mTLS]──► Nequi Adapter
+             ──[mTLS]──► Webhook Dispatcher
 ```
 
-**Stack sugerido:** Istio service mesh + SPIFFE/SPIRE para rotación automática de certificados.
+**Suggested stack:** Istio service mesh + SPIFFE/SPIRE for automatic certificate rotation.
 
 ---
 
-#### 🟡 3.2 Protección contra DNS Rebinding (R-006)
+#### 🟡 3.2 DNS Rebinding Protection (R-006)
 
-La `SsrfGuard` actual valida la URL en tiempo de recepción del request, pero no resuelve DNS. Un atacante puede:
-1. Registrar `evil.com` apuntando a `1.2.3.4` (pública) → pasa validación.
-2. Cambiar DNS para apuntar a `169.254.169.254` → el HTTP client llama al metadata service.
+The current `SsrfGuard` validates the URL at request reception time but does not resolve DNS. An attacker can:
+1. Register `evil.com` pointing to `1.2.3.4` (public) → passes validation.
+2. Change DNS to point to `169.254.169.254` → the HTTP client calls the metadata service.
 
-**Fix en el HTTP client que ejecuta los webhooks:**
+**Fix in the HTTP client that executes webhooks:**
 ```java
-// WebClientConfig.java — validar IP post-resolución DNS
+// WebClientConfig.java — validate IP post-DNS resolution
 .clientConnector(new ReactorClientHttpConnector(
     HttpClient.create()
         .resolver(nameResolverSpec ->
@@ -1896,55 +1908,55 @@ La `SsrfGuard` actual valida la URL en tiempo de recepción del request, pero no
 
 #### 🟡 3.3 WAF (Web Application Firewall)
 
-Delante del Load Balancer, bloquear:
-- Inyección SQL / NoSQL en headers
-- XSS en campos de texto libre
-- Geo-blocking por país (si el negocio aplica)
-- Bot signatures conocidos
+In front of the Load Balancer, block:
+- SQL / NoSQL injection in headers
+- XSS in free-text fields
+- Geo-blocking by country (if applicable to the business)
+- Known bot signatures
 
-**Opciones:** AWS WAF v2 (recomendado para AWS), Cloudflare WAF, NGINX ModSecurity.
+**Options:** AWS WAF v2 (recommended for AWS), Cloudflare WAF, NGINX ModSecurity.
 
 ---
 
-#### 🟡 3.4 Auditoría y Trazabilidad Regulatoria
+#### 🟡 3.4 Audit Trail and Regulatory Traceability
 
-Para cumplimiento con **Habeas Data (Ley 1581/2012)**, **SFC**, y eventualmente **PCI DSS**:
+For compliance with **Habeas Data (Law 1581/2012)**, **SFC**, and eventually **PCI DSS**:
 
 ```java
-// AuditEventEntity.java — tabla separada de auditoría
+// AuditEventEntity.java — separate audit table
 @Entity
 @Table(name = "audit_events")
 public class AuditEventEntity {
     UUID id;
     String eventType;         // TRANSACTION_CREATED, STATUS_UPDATED, AUTH_FAILED
-    String actorKey;          // API key (hasheada)
+    String actorKey;          // API key (hashed)
     String resourceId;        // transaction_id
     String clientIp;
     Instant occurredAt;
-    String payload;           // JSON diff del cambio (sin PII)
+    String payload;           // JSON diff of the change (no PII)
 }
 ```
 
-**Publicar en Kafka / SQS** para consumo por un servicio de auditoría dedicado — no escribir en la misma BD transaccional.
+**Publish to Kafka / SQS** for consumption by a dedicated audit service — do not write to the same transactional database.
 
 ---
 
-### Fase 4 — Evolución del Producto (Sprint 10+)
+### Phase 4 — Product Evolution (Sprint 10+)
 
-#### 🟢 4.1 Multi-Tenancy y Configuración por Cliente
+#### 🟢 4.1 Multi-Tenancy and Per-Client Configuration
 
 ```
-API Key A (Merchant X) → límite $5.000.000 COP, solo PSE, solo CO
-API Key B (Merchant Y) → límite $100.000.000 COP, PSE + Nequi, CO + MX
+API Key A (Merchant X) → limit $5,000,000 COP, PSE only, CO only
+API Key B (Merchant Y) → limit $100,000,000 COP, PSE + Nequi, CO + MX
 ```
 
-Migrar la configuración estática de `application.yml` a una tabla `client_configurations` con cache en Redis.
+Migrate static configuration from `application.yml` to a `client_configurations` table with Redis cache.
 
 ---
 
-#### 🟢 4.2 Event Sourcing para Estado de Transacciones
+#### 🟢 4.2 Event Sourcing for Transaction State
 
-En lugar de sobreescribir el estado (`PENDING → PROCESSING → APPROVED`), registrar cada transición como un evento inmutable:
+Instead of overwriting the state (`PENDING → PROCESSING → APPROVED`), record each transition as an immutable event:
 
 ```
 TransactionCreatedEvent
@@ -1953,68 +1965,68 @@ TransactionApprovedEvent
 TransactionRefundedEvent
 ```
 
-**Beneficios:** auditoría completa, replay para debugging, compatible con CQRS para proyecciones de reportes.
+**Benefits:** complete audit trail, replay for debugging, compatible with CQRS for reporting projections.
 
 ---
 
-#### 🟢 4.3 Notificaciones al Merchant (Outbox Pattern)
+#### 🟢 4.3 Merchant Notifications (Outbox Pattern)
 
-Para evitar pérdida de notificaciones si el webhook hacia el merchant falla:
+To prevent notification loss if the webhook to the merchant fails:
 
 ```
 ┌─────────────────────────────────────────────┐
 │  @Transactional                             │
 │  1. UPDATE transaction SET status=APPROVED  │
-│  2. INSERT INTO outbox_events (payload)     │  ← misma transacción
+│  2. INSERT INTO outbox_events (payload)     │  ← same transaction
 └─────────────────────────────────────────────┘
          │
-         ▼ (Polling job cada 1s)
+         ▼ (Polling job every 1s)
     Outbox Relay Service
          │
          ▼
-    POST merchant_webhook_url   (con retry exponencial)
+    POST merchant_webhook_url   (with exponential retry)
 ```
 
 ---
 
-#### 🟢 4.4 Monitoreo Avanzado y SLAs
+#### 🟢 4.4 Advanced Monitoring and SLAs
 
-| Alerta | Condición | Acción |
+| Alert | Condition | Action |
 |---|---|---|
-| Circuit breaker OPEN | `cb_state == "OPEN"` | Alerta inmediata |
-| Transacciones PROCESSING > 10 min | Query periódica | Job de expiración |
-| `security.invalid_api_key` > 10/min por IP | Log pattern en agregador | Alerta + bloqueo manual hasta implementar R-T05 |
+| Circuit breaker OPEN | `cb_state == "OPEN"` | Immediate alert |
+| PROCESSING transactions > 10 min | Periodic query | Expiration job |
+| `security.invalid_api_key` > 10/min per IP | Log pattern in aggregator | Alert + manual block until R-T05 is implemented |
 
 ---
 
 ### Roadmap Visual
 
 ```
-Hoy (MVP)
+Today (MVP)
     │
     ▼─────────────────── Sprint 1-3 ──────────────────────▶
-    │  🔴 Webhook receiver + job de expiración
-    │  🔴 Adaptador PSE real
+    │  🔴 Webhook receiver + expiration job
+    │  🔴 Real PSE adapter
     │  🔴 Secrets Manager (Vault / AWS SM)
-    │  🔴 Tests integración (Testcontainers + MySQL)
+    │  🔴 Integration tests (Testcontainers + MySQL)
     │  🔴 Brute-force protection (BruteForceProtectionService + Redis)
     │
     ▼─────────────────── Sprint 4-6 ──────────────────────▶
-    │  🟠 Rate limiting → Redis distribuido (Bucket4j Redis)
+    │  🟠 Rate limiting → distributed Redis (Bucket4j Redis)
     │  🟠 Kubernetes HPA + probes tuning
     │  🟠 MySQL Multi-AZ + Redis ElastiCache cluster
-    │  🟠 Adaptadores Nequi y Bre-B
+    │  🟠 Nequi and Bre-B adapters
     │
     ▼─────────────────── Sprint 7-9 ──────────────────────▶
-    │  🟡 mTLS inter-servicio (Istio / SPIFFE)
-    │  🟡 DNS rebinding fix en HTTP client de webhooks
-    │  🟡 WAF delante del Load Balancer
-    │  🟡 Tabla de auditoría + Kafka → servicio regulatorio
+    │  🟡 Inter-service mTLS (Istio / SPIFFE)
+    │  🟡 DNS rebinding fix in webhook HTTP client
+    │  🟡 WAF in front of Load Balancer
+    │  🟡 Audit table + Kafka → regulatory service
     │
     ▼─────────────────── Sprint 10+ ───────────────────────▶
-       🟢 Multi-tenancy con config por cliente en BD
-       🟢 Event Sourcing para estado de transacciones
-       🟢 Outbox Pattern para notificaciones garantizadas
-       🟢 Dashboards Grafana
+       🟢 Multi-tenancy with per-client config in database
+       🟢 Event Sourcing for transaction state
+       🟢 Outbox Pattern for guaranteed notifications
+       🟢 Grafana Dashboards
        🟢 PCI DSS SAQ-A assessment
 ```
