@@ -51,7 +51,7 @@ The **Transaction Orchestrator** is a central hub in the TumiPay payment infrast
 
 ```
                          ┌──────────────────────────────────────────────────────────────┐
-                         │             TumiPay Transaction Orchestrator                  │
+                         │             TumiPay Transaction Orchestrator                 │
                          │                                                              │
   ┌────────────────┐     │  ┌─────────────────────────────────────────────────────────┐ │
   │  Client System │────▶│  │                   SECURITY FILTER CHAIN                 │ │
@@ -67,13 +67,13 @@ The **Transaction Orchestrator** is a central hub in the TumiPay payment infrast
                          │                           │                                  │
                          │                           ▼                                  │
                          │  ┌─────────────────────────────────────────────────────────┐ │
-                         │  │              HTTP Inbound Adapter                        │ │
-                         │  │  REST Controller + Bean Validation + MapStruct DTOs      │ │
+                         │  │              HTTP Inbound Adapter                       │ │
+                         │  │  REST Controller + Bean Validation + MapStruct DTOs     │ │
                          │  └───────────────────────┬─────────────────────────────────┘ │
                          │                          │                                   │
                          │                          ▼                                   │
                          │  ┌─────────────────────────────────────────────────────────┐ │
-                         │  │              APPLICATION CORE                            │ │
+                         │  │              APPLICATION CORE                           │ │
                          │  │                                                         │ │
                          │  │  CreateTransactionService                               │ │
                          │  │    1. Domain Validation (+ SSRF guard + amount limits)  │ │
@@ -85,12 +85,12 @@ The **Transaction Orchestrator** is a central hub in the TumiPay payment infrast
                          │  │    7. Persist final status + update idempotency cache   │ │
                          │  └───────────────────────┬─────────────────────────────────┘ │
                          │                          │                                   │
-                         │         ┌────────────────┴───────────────┐                  │
-                         │         ▼                                ▼                  │
-                         │  ┌──────────────┐           ┌────────────────────────┐     │
-                         │  │   MySQL 8    │           │  Redis 7               │     │
-                         │  │  (Primary DB)│           │  Idempotency + Cache   │     │
-                         │  └──────────────┘           └────────────────────────┘     │
+                         │         ┌────────────────┴───────────────┐                   │
+                         │         ▼                                ▼                   │
+                         │  ┌──────────────┐           ┌────────────────────────┐       │
+                         │  │   MySQL 8    │           │  Redis 7               │       │
+                         │  │  (Primary DB)│           │  Idempotency + Cache   │       │
+                         │  └──────────────┘           └────────────────────────┘       │
                          └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -102,7 +102,7 @@ Client → POST /api/v1/transactions  (X-API-Key: <key>)
              ▼
 ┌────────────────────────────────────────────────────┐
 │  Security Filter Chain                             │
-│  ① Correlation ID + client IP → MDC               │
+│  ① Correlation ID + client IP → MDC                │
 │  ② API key validation (constant-time XOR)          │
 │  ③ IP whitelist check (optional, per key)          │
 └────────────────────┬───────────────────────────────┘
