@@ -1,0 +1,89 @@
+version: '3.9'
+
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: tumipay-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: tumipay_orchestrator
+      MYSQL_USER: tumipay
+      MYSQL_PASSWORD: tumipay123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max-connections=200
+      --innodb-buffer-pool-size=256M
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "tumipay", "-ptumipay123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - tumipay-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: tumipay-redis
+    command: >
+      redis-server
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - tumipay-network
+
+  orchestrator:
+    build:
+      context: .
+      target: runtime
+    container_name: tumipay-orchestrator
+    ports:
+      - "8080:8080"
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/tumipay_orchestrator?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      DB_USERNAME: tumipay
+      DB_PASSWORD: tumipay123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SERVER_PORT: 8080
+      LOG_LEVEL: INFO
+      APP_ENV: docker
+      API_KEYS: test-key-docker-001,test-key-docker-002
+      TRACING_SAMPLE_RATE: "1.0"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tumipay-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+
+volumes:
+  mysql-data:
+
+networks:
+  tumipay-network:
+    driver: bridge

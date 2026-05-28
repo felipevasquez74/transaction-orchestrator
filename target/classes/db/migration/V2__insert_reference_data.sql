@@ -1,8 +1,3 @@
--- =============================================================================
--- TumiPay Transaction Orchestrator - Reference Data
--- =============================================================================
-
--- Transaction Statuses
 INSERT INTO transaction_statuses (code, name, description, is_final) VALUES
 ('PENDING',    'Pending',    'Transaction created and waiting to be sent to provider', 0),
 ('PROCESSING', 'Processing', 'Transaction sent to provider and awaiting confirmation',  0),
@@ -12,7 +7,6 @@ INSERT INTO transaction_statuses (code, name, description, is_final) VALUES
 ('CANCELLED',  'Cancelled',  'Transaction cancelled by client or system',               1),
 ('ERROR',      'Error',      'Unexpected error during processing',                      1);
 
--- Document Types
 INSERT INTO document_types (code, name, description, country, active) VALUES
 ('CC',   'Cédula de Ciudadanía',          'Colombian national ID card',              'CO', 1),
 ('CE',   'Cédula de Extranjería',         'Foreign resident ID in Colombia',         'CO', 1),
@@ -23,7 +17,6 @@ INSERT INTO document_types (code, name, description, country, active) VALUES
 ('DNI',  'Documento Nacional de Identidad','National ID (various countries)',        'CO', 1),
 ('NUIP', 'Número Único de Identificación Personal', 'Colombian unique personal ID', 'CO', 1);
 
--- Payment Methods
 INSERT INTO payment_methods (id, name, provider, active) VALUES
 ('PSE',       'PSE - Débito en línea',          'MOCK', 1),
 ('CARD_VISA', 'Tarjeta de Crédito Visa',        'MOCK', 1),

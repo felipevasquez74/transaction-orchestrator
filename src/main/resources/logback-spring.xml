@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    TumiPay Transaction Orchestrator — Logback Configuration
+    - JSON structured logging in non-local environments
+    - Console (colored) in local profile
+    - MDC fields: correlation_id, client_transaction_id, payment_method, span_id, trace_id
+    - Sensitive fields are NOT logged (no passwords, no full card numbers, no secrets)
+-->
+<configuration>
+
+    <springProperty name="APP_NAME" source="spring.application.name" defaultValue="tumipay-orchestrator"/>
+    <springProperty name="LOG_LEVEL" source="logging.level.co.tumipay" defaultValue="INFO"/>
+
+    <!-- ── Local / Development: Human-readable colored logs ─────────────────── -->
+    <springProfile name="default,local,test">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{HH:mm:ss.SSS} %highlight(%-5level) [%cyan(%X{correlation_id:-NO_CORR})] [%blue(%X{client_transaction_id:-})] %yellow(%logger{36}) - %msg%n</pattern>
+            </encoder>
+        </appender>
+
+        <root level="${LOG_LEVEL}">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- ── Production / Docker / CI: JSON Structured Logs ───────────────────── -->
+    <springProfile name="prod,docker,staging">
+        <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <includeContext>false</includeContext>
+                <includeMdc>true</includeMdc>
+                <!-- Include standard fields -->
+                <customFields>{"service":"${APP_NAME}","version":"1.0.0"}</customFields>
+                <!-- Exclude sensitive fields from logs -->
+                <fieldNames>
+                    <timestamp>timestamp</timestamp>
+                    <message>message</message>
+                    <logger>logger</logger>
+                    <thread>thread</thread>
+                    <level>level</level>
+                    <stackTrace>stack_trace</stackTrace>
+                </fieldNames>
+                <!-- Mask sensitive MDC values -->
+                <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                    <maxDepthPerCause>20</maxDepthPerCause>
+                    <rootCauseFirst>true</rootCauseFirst>
+                </throwableConverter>
+            </encoder>
+        </appender>
+
+        <root level="${LOG_LEVEL}">
+            <appender-ref ref="JSON_CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- ── Async wrapper for performance ────────────────────────────────────── -->
+    <springProfile name="prod">
+        <appender name="ASYNC_JSON" class="ch.qos.logback.classic.AsyncAppender">
+            <appender-ref ref="JSON_CONSOLE"/>
+            <queueSize>512</queueSize>
+            <discardingThreshold>0</discardingThreshold>
+            <neverBlock>true</neverBlock>
+            <includeCallerData>false</includeCallerData>
+        </appender>
+    </springProfile>
+
+</configuration>

@@ -1,13 +1,3 @@
--- =============================================================================
--- TumiPay Transaction Orchestrator - Initial Schema
--- Version: 1.0.0
--- Description: Normalized relational schema for transaction orchestration
--- =============================================================================
-
--- -----------------------------------------------------------------------------
--- Table: document_types
--- Description: Catalogue of legal document types per country
--- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS document_types (
     code        VARCHAR(10)     NOT NULL,
     name        VARCHAR(100)    NOT NULL,
@@ -19,10 +9,6 @@ CREATE TABLE IF NOT EXISTS document_types (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Catalogue of legal document types';
 
--- -----------------------------------------------------------------------------
--- Table: payment_methods
--- Description: Catalogue of available payment methods (adapters)
--- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS payment_methods (
     id          VARCHAR(50)     NOT NULL,
     name        VARCHAR(100)    NOT NULL,
@@ -34,10 +20,6 @@ CREATE TABLE IF NOT EXISTS payment_methods (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Catalogue of payment methods and their provider adapters';
 
--- -----------------------------------------------------------------------------
--- Table: transaction_statuses
--- Description: Catalogue of transaction lifecycle statuses
--- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS transaction_statuses (
     code        VARCHAR(20)     NOT NULL,
     name        VARCHAR(100)    NOT NULL,
@@ -47,10 +29,6 @@ CREATE TABLE IF NOT EXISTS transaction_statuses (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Transaction lifecycle status catalogue';
 
--- -----------------------------------------------------------------------------
--- Table: customers
--- Description: Customer information associated to transactions
--- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS customers (
     id                  CHAR(36)        NOT NULL COMMENT 'UUID v4',
     document_type_code  VARCHAR(10)     NULL,
@@ -72,10 +50,6 @@ CREATE TABLE IF NOT EXISTS customers (
 CREATE INDEX idx_customers_email ON customers(email);
 CREATE INDEX idx_customers_document ON customers(document_type_code, document_number);
 
--- -----------------------------------------------------------------------------
--- Table: transactions
--- Description: Core transaction table - main orchestrator entity
--- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS transactions (
     id                      CHAR(36)        NOT NULL COMMENT 'UUID v4 - assigned by orchestrator',
     client_transaction_id   VARCHAR(100)    NOT NULL COMMENT 'Unique ID from client system',
@@ -109,10 +83,6 @@ CREATE INDEX idx_transactions_created_at ON transactions(created_at);
 CREATE INDEX idx_transactions_currency ON transactions(currency_code);
 CREATE INDEX idx_transactions_country ON transactions(country_code);
 
--- -----------------------------------------------------------------------------
--- Table: transaction_provider_responses
--- Description: Audit log of provider adapter responses per transaction
--- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS transaction_provider_responses (
     id              CHAR(36)        NOT NULL COMMENT 'UUID v4',
     transaction_id  CHAR(36)        NOT NULL,
