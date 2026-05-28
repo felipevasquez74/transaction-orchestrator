@@ -779,7 +779,7 @@ Push / PR
      ▼            ▼
 ┌──────────┐  ┌──────────────────────────┐
 │  Job 2:  │  │  Job 3: Docker Build     │
-│  Sonar   │  │  (main/develop only)     │
+│  Sonar   │  │  (main/master/develop)   │
 │  Analysis│  │  - mvn package -DskipTests│
 │  (code   │  │  - Docker Buildx         │
 │  quality)│  │  - Login GHCR            │
@@ -794,7 +794,8 @@ Push / PR
 | `feature/**` | YES | NO | NO |
 | `develop` | YES | YES | YES |
 | `main` | YES | YES | YES |
-| PR to main/develop | YES | NO | NO |
+| `master` | YES | YES | YES |
+| PR to main/master/develop | YES | NO | NO |
 
 ### Docker Image
 
@@ -863,48 +864,153 @@ JaCoCo threshold: **70% line coverage** minimum (build fails below threshold).
 
 ### Prerequisites
 
-- Java 17+
-- Maven 3.9+
-- Docker & Docker Compose
+| Tool | Version | Install |
+|---|---|---|
+| Git | any | [git-scm.com](https://git-scm.com) |
+| Docker Desktop | 24+ | [docker.com/get-started](https://www.docker.com/get-started/) |
+| Docker Compose | included in Docker Desktop | — |
 
-### Option 1: Full Stack (Docker Compose)
+> Java and Maven are **not required** to run the full stack — the Docker build compiles the app inside the container.
+
+---
+
+### Quickstart — Full Stack with Docker (recommended)
+
+#### Step 1 — Clone the repository
 
 ```bash
-# Start all services: MySQL, Redis, App
-docker-compose up --build -d
+git clone https://github.com/your-org/transaction-orchestrator.git
+cd transaction-orchestrator
+```
 
-# Follow application logs
+#### Step 2 — Build and start all services
+
+```bash
+docker-compose up --build -d
+```
+
+This single command:
+1. Compiles the Java application inside Docker (no local JDK needed)
+2. Starts **MySQL 8** and waits for it to be healthy
+3. Starts **Redis 7** and waits for it to be healthy
+4. Starts the **Orchestrator** on port `8080`
+
+First build takes ~3–5 minutes (downloads Maven dependencies). Subsequent builds are faster due to Docker layer caching.
+
+#### Step 3 — Verify the stack is up
+
+```bash
+# Check all containers are running
+docker-compose ps
+
+# Expected output:
+# NAME                   STATUS
+# tumipay-mysql          Up (healthy)
+# tumipay-redis          Up (healthy)
+# tumipay-orchestrator   Up
+
+# Health endpoint (no auth required)
+curl http://localhost:8080/actuator/health
+# Expected: {"status":"UP","components":{"db":{"status":"UP"},"redis":{"status":"UP"}}}
+```
+
+#### Step 4 — Open Swagger UI
+
+```
+http://localhost:8080/swagger-ui.html
+```
+
+All endpoints are documented and executable directly from the browser. Use `test-key-docker-001` as the API key in the Authorize button.
+
+#### Step 5 — Send a test transaction
+
+```bash
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: test-key-docker-001" \
+  -H "X-Correlation-ID: test-001" \
+  -d '{
+    "client_transaction_id": "ORDER-DOCKER-001",
+    "amount": 150000,
+    "currency_code": "COP",
+    "country_code": "CO",
+    "payment_method_id": "PSE",
+    "webhook_url": "https://webhook.site/your-unique-id",
+    "redirect_url": "https://example.com/result",
+    "description": "Test payment via Docker",
+    "customer": {
+      "first_name": "Juan",
+      "last_name": "Pérez",
+      "email": "juan@example.com",
+      "document_type": "CC",
+      "document_number": "1234567890"
+    }
+  }'
+```
+
+Expected response `HTTP 201`:
+```json
+{
+  "code": "000",
+  "message": "Successful operation",
+  "data": {
+    "transaction_id": "<uuid>",
+    "status": "PROCESSING",
+    "client_transaction_id": "ORDER-DOCKER-001",
+    "payment_method_id": "PSE",
+    "currency_code": "COP",
+    "country_code": "CO"
+  }
+}
+```
+
+#### Step 6 — View logs (optional)
+
+```bash
+# Follow live application logs
 docker-compose logs -f orchestrator
 
-# Stop
+# View MySQL query log
+docker-compose logs -f mysql
+```
+
+#### Step 7 — Stop the stack
+
+```bash
+# Stop containers (keeps DB data)
 docker-compose down
 
-# Stop and remove volumes (clean state)
+# Stop and wipe all data (clean slate for next run)
 docker-compose down -v
 ```
 
-Services started:
-- Application: `http://localhost:8080`
-- Swagger UI: `http://localhost:8080/swagger-ui.html`
+---
 
-### Option 2: Local Development (MySQL + Redis via Docker)
+### Option 2: Local Development (MySQL + Redis via Docker, app via Maven)
+
+Requires Java 17+ and Maven 3.9+ installed locally.
 
 ```bash
-# Start infrastructure only
+# Start only infrastructure
 docker-compose up mysql redis -d
 
-# Run application locally
+# Run application with local profile
 mvn spring-boot:run -Dspring-boot.run.profiles=local
 ```
+
+Use API key `test-key-dev-001` for local development.
+
+---
 
 ### Option 3: Tests Only
 
 ```bash
-# Unit tests (H2 in-memory, no external services needed)
+# Unit tests (H2 in-memory — no Docker needed)
 mvn test
 
-# Full build + test + coverage report
+# Full build + test + JaCoCo coverage report
 mvn clean verify
+# Coverage report: target/site/jacoco/index.html
 ```
 
 ### Environment Variables
@@ -925,11 +1031,11 @@ mvn clean verify
 ### API Quick Test (cURL)
 
 ```bash
-# Create a transaction
+# Create a transaction (Docker stack — use test-key-docker-001)
 curl -X POST http://localhost:8080/api/v1/transactions \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: test-key-dev-001" \
-  -H "X-Correlation-ID: $(uuidgen)" \
+  -H "X-API-Key: test-key-docker-001" \
+  -H "X-Correlation-ID: test-001" \
   -d '{
     "client_transaction_id": "ORDER-TEST-001",
     "amount": 150000,
@@ -948,14 +1054,15 @@ curl -X POST http://localhost:8080/api/v1/transactions \
     }
   }'
 
-# Query a transaction
-curl -H "X-API-Key: test-key-dev-001" \
-  http://localhost:8080/api/v1/transactions/550e8400-e29b-41d4-a716-446655440000
+# Query a transaction by ID
+curl -H "X-API-Key: test-key-docker-001" \
+  http://localhost:8080/api/v1/transactions/<transaction_id>
 
 # Health probe (no auth required)
 curl http://localhost:8080/actuator/health
-
 ```
+
+> **Local development** (Option 2): use `test-key-dev-001` instead.
 
 ### SSRF Guard — Rejected Examples
 
